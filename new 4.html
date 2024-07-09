@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGV Path Animation with Custom Vehicle, LEDs, Charging Station, and Obstacles</title>
+    <style>
+        .vehicle {
+            fill: blue;
+        }
+        .station {
+            fill: red;
+        }
+        .led {
+            fill: grey;
+        }
+        .led-on {
+            fill: green;
+        }
+        .led-loading {
+            fill: yellow;
+        }
+        .charging-station {
+            fill: purple;
+        }
+        .obstacle {
+            fill: black;
+        }
+        .alarm {
+            color: red;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <button id="start-button">Start</button>
+    <button id="stop-button">Stop</button>
+    <p id="alarm" class="alarm">Obstacle Detected! AGV Stopped!</p>
+
+    <svg id="svg" width="600" height="400" viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+        <!-- Define the rectangular path -->
+        <rect x="50" y="50" width="400" height="200" fill="none" stroke="black" />
+
+        <!-- Define the loading and unloading stations -->
+        <circle cx="50" cy="50" r="10" class="station" />
+        <circle cx="450" cy="250" r="10" class="station" />
+
+        <!-- Define the LEDs at each station -->
+        <!-- Loading Station LEDs -->
+        <circle id="led-loading-A" cx="100" cy="50" r="5" class="led" />
+        <circle id="led-process-A" cx="100" cy="60" r="5" class="led" />
+
+        <!-- Unloading Station LEDs -->
+        <circle id="led-loading-C" cx="400" cy="250" r="5" class="led" />
+        <circle id="led-process-C" cx="400" cy="260" r="5" class="led" />
+
+        <!-- Define the custom vehicle as a group -->
+        <g id="vehicle" transform="translate(45, 45)">
+            <!-- Vehicle body -->
+            <rect x="0" y="0" width="40" height="20" fill="blue" stroke="black" stroke-width="2" />
+            <!-- Vehicle roof -->
+            <polygon points="10,0 20,-10 30,-10 40,0" fill="blue" stroke="black" stroke-width="2" />
+            <!-- Windows -->
+            <rect x="10" y="-15" width="10" height="10" fill="lightblue" stroke="black" stroke-width="2" />
+            <rect x="25" y="-15" width="10" height="10" fill="lightblue" stroke="black" stroke-width="2" />
+            <!-- Wheels -->
+            <circle cx="10" cy="20" r="5" fill="black" />
+            <circle cx="30" cy="20" r="5" fill="black" />
+        </g>
+
+        <!-- Define the charging station connected to the path -->
+        <circle cx="250" cy="350" r="20" class="charging-station" />
+        <path d="M450,250 L450,350 L250,350" stroke="black" fill="none" />
+        <path d="M250,350 L50,350 L50,50" stroke="black" fill="none" />
+
+        <!-- Define the LEDs at the charging station -->
+        <circle id="led-loading-E" cx="290" cy="350" r="5" class="led" />
+        <circle id="led-process-E" cx="290" cy="360" r="5" class="led" />
+
+        <!-- Add text labels for loading, unloading, and charging stations -->
+        <text x="20" y="40" font-family="Arial" font-size="12" fill="black">Loading</text>
+        <text x="430" y="240" font-family="Arial" font-size="12" fill="black">Unloading</text>
+        <text x="230" y="380" font-family="Arial" font-size="12" fill="black">Charging</text>
+    </svg>
+<button id="obstacle-button">Toggle Obstacle</button>
+<button id="remove-obstacles-button">Remove All Obstacles</button>
+
+<script>
+    const pathPoints = [
+        {x: 50, y: 50},   // Point A (Loading)
+        {x: 450, y: 50},  // Point B
+        {x: 450, y: 250}, // Point C (Unloading)
+        {x: 450, y: 350}, // Point D (Move to charging)
+        {x: 250, y: 350}, // Point E (Charging)
+        {x: 50, y: 350},  // Point F (Return from charging)
+        {x: 50, y: 50}    // Point G (Back to Loading)
+    ];
+
+    const vehicle = document.getElementById('vehicle');
+    let currentPoint = 0;
+    let lapCount = 0;
+    let moving = false;
+    let obstacles = [];
+
+    const ledLoadingA = document.getElementById('led-loading-A');
+    const ledProcessA = document.getElementById('led-process-A');
+    const ledLoadingC = document.getElementById('led-loading-C');
+    const ledProcessC = document.getElementById('led-process-C');
+    const ledLoadingE = document.getElementById('led-loading-E');
+    const ledProcessE = document.getElementById('led-process-E');
+    const alarm = document.getElementById('alarm');
+
+    document.getElementById('start-button').addEventListener('click', () => {
+        if (!moving) {
+            moving = true;
+            alarm.style.display = 'none';
+            moveVehicle();
+        }
+    });
+
+    document.getElementById('stop-button').addEventListener('click', () => {
+        moving = false;
+    });
+
+    document.getElementById('obstacle-button').addEventListener('click', (event) => {
+        if (event.detail === 1) { // Single click
+            addRandomObstacle();
+        } else if (event.detail === 2) { // Double click
+            removeAllObstacles();
+        }
+    });
+
+    document.getElementById('remove-obstacles-button').addEventListener('click', removeAllObstacles);
+
+    document.getElementById('svg').addEventListener('click', (event) => {
+        const rect = event.target.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        addObstacle(x, y);
+    });
+
+    function addRandomObstacle() {
+        const randomIndex = Math.floor(Math.random() * pathPoints.length);
+        const {x, y} = pathPoints[randomIndex];
+        addObstacle(x, y);
+    }
+
+    function addObstacle(x, y) {
+        const svg = document.getElementById('svg');
+        const obstacle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        obstacle.setAttribute('x', x - 5);
+        obstacle.setAttribute('y', y - 5);
+        obstacle.setAttribute('width', 10);
+        obstacle.setAttribute('height', 10);
+        obstacle.classList.add('obstacle');
+        svg.appendChild(obstacle);
+        obstacles.push({x, y, element: obstacle});
+    }
+
+    function removeAllObstacles() {
+        for (const obstacle of obstacles) {
+            obstacle.element.remove();
+        }
+        obstacles = [];
+        if (!moving) {
+            alarm.style.display = 'none';
+            moving = true;
+            moveVehicle();
+        }
+    }
+
+    function moveVehicle() {
+        if (!moving) return;
+
+        const nextPoint = (currentPoint + 1) % pathPoints.length;
+        const duration = 2000; // Time in ms to move to the next point
+        const loadUnloadTime = 1000; // Time in ms for loading/unloading
+        const startX = pathPoints[currentPoint].x;
+        const startY = pathPoints[currentPoint].y;
+        const endX = pathPoints[nextPoint].x;
+        const endY = pathPoints[nextPoint].y;
+
+        let startTime = null;
+
+        function animate(timestamp) {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+
+            if (elapsed < duration) {
+                const progress = elapsed / duration;
+                const currentX = startX + (endX - startX) * progress;
+                const currentY = startY + (endY - startY) * progress;
+                vehicle.setAttribute('transform', `translate(${currentX - 5}, ${currentY - 5})`);
+
+                // Check for collision with obstacles
+                for (const obstacle of obstacles) {
+                    if (Math.abs(currentX - obstacle.x) < 10 && Math.abs(currentY - obstacle.y) < 10) {
+                        moving = false;
+                        alarm.style.display = 'block';
+                        return;
+                    }
+                }
+
+                requestAnimationFrame(animate);
+            } else {
+                vehicle.setAttribute('transform', `translate(${endX - 5}, ${endY - 5})`);
+                currentPoint = nextPoint;
+
+                // Update LEDs based on the position
+                if (endX === 50 && endY === 50) { // Loading station
+                    ledLoadingA.classList.add('led-on');
+                    setTimeout(() => {
+                        ledProcessA.classList.add('led-loading');
+                    }, 500);
+                    setTimeout(() => {
+                        ledProcessA.classList.remove('led-loading');
+                        ledLoadingA.classList.remove('led-on');
+                        setTimeout(() => {
+                            if (moving) requestAnimationFrame(moveVehicle);
+                        }, 500);
+                    }, loadUnloadTime);
+                } else if (endX === 450 && endY === 250) { // Unloading station
+                    ledLoadingC.classList.add('led-on');
+                    setTimeout(() => {
+                        ledProcessC.classList.add('led-loading');
+                    }, 500);
+                    setTimeout(() => {
+                        ledProcessC.classList.remove('led-loading');
+                        ledLoadingC.classList.remove('led-on');
+                        setTimeout(() => {
+                            lapCount++;
+                            if (lapCount >= 3) {
+                                lapCount = 0;
+                                moveToChargingStation();
+                            } else {
+                                if (moving) requestAnimationFrame(moveVehicle);
+                            }
+                        }, 500);
+                    }, loadUnloadTime);
+                } else {
+                    if (moving) requestAnimationFrame(moveVehicle);
+                }
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    function moveToChargingStation() {
+        const pathToCharging = [
+            {x: 450, y: 250}, // Start from Unloading
+            {x: 450, y: 350}, // Move Down
+            {x: 250, y: 350}  // Move Left to Charging
+        ];
+        followPath(pathToCharging, chargeAtStation);
+    }
+
+    function chargeAtStation() {
+        ledLoadingE.classList.add('led-on');
+        setTimeout(() => {
+            ledProcessE.classList.add('led-loading');
+        }, 500);
+        setTimeout(() => {
+            ledProcessE.classList.remove('led-loading');
+            ledLoadingE.classList.remove('led-on');
+            setTimeout(() => {
+                moveBackToPathAfterCharging();
+            }, 500);
+        }, 2000);
+    }
+
+    function moveBackToPathAfterCharging() {
+        const pathToLoading = [
+            {x: 250, y: 350}, // Start from Charging
+            {x: 50, y: 350},  // Move Left
+            {x: 50, y: 50}    // Move Up to Loading
+        ];
+        followPath(pathToLoading, () => {
+            currentPoint = 0; // Reset to the starting point
+            if (moving) requestAnimationFrame(moveVehicle);
+        });
+    }
+
+    function followPath(path, callback) {
+        let segmentIndex = 0;
+
+        function moveSegment() {
+            if (segmentIndex >= path.length - 1) {
+                callback();
+                return;
+            }
+
+            const startX = path[segmentIndex].x;
+            const startY = path[segmentIndex].y;
+            const endX = path[segmentIndex + 1].x;
+            const endY = path[segmentIndex + 1].y;
+            const duration = 2000; // Time in ms to move to the next point
+            let startTime = null;
+
+            function animateSegment(timestamp) {
+                if (!startTime) startTime = timestamp;
+                const elapsed = timestamp - startTime;
+
+                if (elapsed < duration) {
+                    const progress = elapsed / duration;
+                    const currentX = startX + (endX - startX) * progress;
+                    const currentY = startY + (endY - startY) * progress;
+                    vehicle.setAttribute('transform', `translate(${currentX - 5}, ${currentY - 5})`);
+
+                    // Check for collision with obstacles
+                    for (const obstacle of obstacles) {
+                        if (Math.abs(currentX - obstacle.x) < 10 && Math.abs(currentY - obstacle.y) < 10) {
+                            moving = false;
+                            alarm.style.display = 'block';
+                            return;
+                        }
+                    }
+
+                    requestAnimationFrame(animateSegment);
+                } else {
+                    vehicle.setAttribute('transform', `translate(${endX - 5}, ${endY - 5})`);
+                    segmentIndex++;
+                    requestAnimationFrame(moveSegment);
+                }
+            }
+
+            requestAnimationFrame(animateSegment);
+        }
+
+        moveSegment();
+    }
+</script>
+
+</body>
+</html>
